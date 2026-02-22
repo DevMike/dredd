@@ -1,0 +1,46 @@
+# Dependencies
+/deps/
+/_build/
+
+# Mix artifacts
+*.ez
+.fetch
+
+# Generated files
+/priv/static/
+
+# Ecto
+*.sqlite3
+*.db
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp files
+*.swp
+*.swo
+*~
+
+# Crash dumps
+erl_crash.dump
+
+# Coverage
+/cover/
+
+# Dialyzer
+/priv/plts/
+
+# Local tool artifacts
+.claude/
+.expert/
