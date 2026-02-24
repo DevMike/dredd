@@ -18,4 +18,18 @@ defmodule LlmMarket.Telegram.Keyboards do
       ]
     }
   end
+
+  @doc """
+  Build the keyboard for prompt refinement suggestions.
+  """
+  def prompt_refinement_keyboard(chat_id) do
+    %{
+      inline_keyboard: [
+        [
+          %{text: "✓ Use Suggested", callback_data: "use_suggested:#{chat_id}"},
+          %{text: "✗ Use Original", callback_data: "use_original:#{chat_id}"}
+        ]
+      ]
+    }
+  end
 end
