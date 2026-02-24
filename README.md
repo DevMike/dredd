@@ -72,7 +72,8 @@ mix phx.server
 
 | Command | Description |
 |---------|-------------|
-| `/ask <question>` | Ask a question to the model ensemble |
+| `/ask <question>` | Ask a question (with prompt refinement) |
+| `/ask! <question>` | Ask without prompt refinement |
 | `/last` | Show the last run result |
 | `/run <id>` | Show a specific run |
 | `/raw <id>` | Show raw provider answers |
@@ -81,6 +82,15 @@ mix phx.server
 | `/providers` | List enabled providers |
 | `/config` | Show current settings |
 | `/help` | Show help message |
+
+### Prompt Refinement
+
+When you use `/ask`, the bot first suggests an improved version of your question using GPT-4o-mini. You can:
+- Click **"Use Suggested"** to proceed with the refined prompt
+- Click **"Use Original"** to proceed with your original question
+- **Reply** to the suggestion message with your own edited version
+
+Use `/ask!` to skip refinement and run your question directly.
 
 ## Configuration
 
