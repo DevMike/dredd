@@ -27,6 +27,9 @@ defmodule LlmMarket.Application do
       # Orchestrator supervisor (provider clients, run coordinators)
       LlmMarket.Orchestrator.Supervisor,
 
+      # Telegram pending prompts storage
+      LlmMarket.Telegram.PendingPrompts,
+
       # Telegram bot (conditionally started based on config)
       telegram_child_spec()
     ]

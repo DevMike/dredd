@@ -5,15 +5,15 @@ defmodule LlmMarket.Telegram.Commands do
 
   require Logger
 
-  alias LlmMarket.Telegram.{Bot, Formatter, Keyboards}
-  alias LlmMarket.Core.Market
+  alias LlmMarket.Telegram.{Bot, Formatter, Keyboards, PendingPrompts}
+  alias LlmMarket.Core.{Market, PromptRefiner}
   alias LlmMarket.Repo
   alias LlmMarket.Schemas.{Thread, Run}
 
   import Ecto.Query
 
   @doc """
-  Handle /ask command - start a new run.
+  Handle /ask command - start a new run with prompt refinement.
   """
   def handle_ask(chat_id, question) do
     max_length = LlmMarket.bot_config()[:max_question_length] || 4000
@@ -29,22 +29,74 @@ defmodule LlmMarket.Telegram.Commands do
         )
 
       true ->
-        # Send initial message
-        Bot.send_message(chat_id, "Processing your question...")
+        # Try to refine the prompt
+        case PromptRefiner.refine(question) do
+          {:ok, suggested} when suggested != question ->
+            # Show suggestion with buttons
+            message = format_suggestion(suggested)
+            keyboard = Keyboards.prompt_refinement_keyboard(chat_id)
 
-        # Start the market run asynchronously
-        Task.start(fn ->
-          case Market.run(chat_id, question) do
-            {:ok, run} ->
-              response = Formatter.format_run_result(run)
-              keyboard = Keyboards.run_result_keyboard(run.id)
-              Bot.send_message(chat_id, response, reply_markup: keyboard)
+            case Bot.send_message(chat_id, message, reply_markup: keyboard) do
+              {:ok, sent_message} ->
+                PendingPrompts.store(chat_id, question, suggested, sent_message.message_id)
 
-            {:error, reason} ->
-              Bot.send_message(chat_id, Formatter.format_error(reason))
-          end
-        end)
+              _ ->
+                # Fallback: proceed with original
+                run_market(chat_id, question)
+            end
+
+          _ ->
+            # Refinement failed or same as original, proceed directly
+            run_market(chat_id, question)
+        end
     end
+  end
+
+  @doc """
+  Handle /ask! command - skip refinement and run directly.
+  """
+  def handle_ask_direct(chat_id, question) do
+    max_length = LlmMarket.bot_config()[:max_question_length] || 4000
+
+    cond do
+      String.length(question) == 0 ->
+        Bot.send_message(chat_id, "Please provide a question. Usage: `/ask! <your question>`")
+
+      String.length(question) > max_length ->
+        Bot.send_message(
+          chat_id,
+          "Question too long. Maximum length is #{max_length} characters."
+        )
+
+      true ->
+        run_market(chat_id, question)
+    end
+  end
+
+  defp format_suggestion(suggested) do
+    """
+    📝 Suggested prompt:
+
+    "#{suggested}"
+
+    Or reply to this message with your edited version.
+    """
+  end
+
+  defp run_market(chat_id, question) do
+    Bot.send_message(chat_id, "Processing your question...")
+
+    Task.start(fn ->
+      case Market.run(chat_id, question) do
+        {:ok, run} ->
+          response = Formatter.format_run_result(run)
+          keyboard = Keyboards.run_result_keyboard(run.id)
+          Bot.send_message(chat_id, response, reply_markup: keyboard)
+
+        {:error, reason} ->
+          Bot.send_message(chat_id, Formatter.format_error(reason))
+      end
+    end)
   end
 
   @doc """
@@ -178,7 +230,8 @@ defmodule LlmMarket.Telegram.Commands do
     I orchestrate multiple AI models to find consensus on your questions.
 
     *Commands:*
-    `/ask <question>` - Ask a question
+    `/ask <question>` - Ask a question (with prompt refinement)
+    `/ask! <question>` - Ask without refinement
     `/last` - Show last run result
     `/run <id>` - Show a specific run
     `/raw <id>` - Show raw provider answers
@@ -218,6 +271,48 @@ defmodule LlmMarket.Telegram.Commands do
       run ->
         response = Formatter.format_cost_breakdown(run)
         Bot.send_message(chat_id, response)
+    end
+  end
+
+  @doc """
+  Handle "Use Suggested" callback.
+  """
+  def handle_use_suggested(chat_id) do
+    case PendingPrompts.pop(chat_id) do
+      {:ok, %{suggested: suggested}} ->
+        run_market(chat_id, suggested)
+
+      :not_found ->
+        Bot.send_message(chat_id, "No pending suggestion found. Use /ask to start.")
+    end
+  end
+
+  @doc """
+  Handle "Use Original" callback.
+  """
+  def handle_use_original(chat_id) do
+    case PendingPrompts.pop(chat_id) do
+      {:ok, %{original: original}} ->
+        run_market(chat_id, original)
+
+      :not_found ->
+        Bot.send_message(chat_id, "No pending suggestion found. Use /ask to start.")
+    end
+  end
+
+  @doc """
+  Handle reply to a pending prompt message.
+  Returns :handled if it was a reply to a pending prompt, :ignore otherwise.
+  """
+  def handle_reply_edit(chat_id, edited_text, reply_to_message_id) do
+    case PendingPrompts.get_by_message_id(reply_to_message_id) do
+      {:ok, ^chat_id, _data} ->
+        PendingPrompts.pop(chat_id)
+        run_market(chat_id, edited_text)
+        :handled
+
+      _ ->
+        :ignore
     end
   end
 

@@ -39,12 +39,28 @@ defmodule LlmMarket.Telegram.Bot do
     :ok
   end
 
+  defp process_message(%{text: text, chat: chat, reply_to_message: reply} = msg)
+       when is_binary(text) and not is_nil(reply) do
+    chat_id = chat.id
+    reply_to_id = reply.message_id
+
+    # Check if this is a reply to a pending prompt
+    case Commands.handle_reply_edit(chat_id, text, reply_to_id) do
+      :handled -> :ok
+      :ignore -> process_message(%{msg | reply_to_message: nil})
+    end
+  end
+
   defp process_message(%{text: text, chat: chat}) when is_binary(text) do
     chat_id = chat.id
     # Strip @botname suffix from commands (used in groups)
     text = Regex.replace(~r/@\w+/, text, "", global: false)
 
     cond do
+      String.starts_with?(text, "/ask! ") ->
+        question = String.trim_leading(text, "/ask! ")
+        Commands.handle_ask_direct(chat_id, question)
+
       String.starts_with?(text, "/ask ") ->
         question = String.trim_leading(text, "/ask ")
         Commands.handle_ask(chat_id, question)
@@ -110,6 +126,12 @@ defmodule LlmMarket.Telegram.Bot do
       ["cost", run_id] ->
         Commands.handle_cost(chat_id, run_id)
 
+      ["use_suggested", chat_id_str] ->
+        Commands.handle_use_suggested(String.to_integer(chat_id_str))
+
+      ["use_original", chat_id_str] ->
+        Commands.handle_use_original(String.to_integer(chat_id_str))
+
       _ ->
         :ok
     end
@@ -119,6 +141,7 @@ defmodule LlmMarket.Telegram.Bot do
 
   @doc """
   Send a message to a chat.
+  Returns {:ok, message} on success or {:error, reason} on failure.
   """
   def send_message(chat_id, text, opts \\ []) do
     # Use plain text by default for reliability
@@ -131,8 +154,8 @@ defmodule LlmMarket.Telegram.Bot do
       |> maybe_add_keyboard(opts[:reply_markup])
 
     case Telegex.send_message(chat_id, text, optional_params) do
-      {:ok, _message} ->
-        :ok
+      {:ok, message} ->
+        {:ok, message}
 
       {:error, reason} ->
         Logger.error("Failed to send Telegram message: #{inspect(reason)}")
